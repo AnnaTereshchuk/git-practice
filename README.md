@@ -213,6 +213,136 @@ except ZeroDivisionError:
 
 
 
+# Changes statuses of orders in a list to new statuses.
+
+from pythoniser import change_statuses, orders_from_list, STATUSES, cancel_order, \
+    stage_order, get_order
+import time
+
+# SUPPORT: fill in
+
+env = "wings-prod"
+status_to = "served"
+orders = orders_from_list("orders_sheet.csv")
+
+
+# Script itself:
+for order in orders:
+    order_json = get_order(env, order)
+    try:
+        current_status = order_json["response"]["status"]
+    except (TypeError, KeyError) as e:
+        print(f"Could not get {order} status")
+        current_status = None
+
+    # some orders are stuck under "shipped" which is no longer used
+    # a workaround is to assume these orders are "staged"
+    # this will apply all the statuses that go after "shipped" ...
+    # ... starting from "ready"
+    if current_status == "shipped":
+        current_status = "staged"
+
+
+    # current_status will be None for some errors, 404 for instance
+
+    # get_order_status will return None for sCDX-CD25972458ome errors, 404 for instance
+
+    # so we only proceed if there is some non-empty status like "picked"
+    if current_status:
+        if current_status == "draft" and status_to not in ["canceled", "cancelled"]:
+            print(f"❄️ Can't push draft {order} because it's not split yet")
+        elif status_to in ["canceled", "cancelled"] and current_status != "cancelled":
+            cancel_order(env, order)
+
+        elif current_status != "cancelled":
+            # these clients require the staging location present
+            if env.startswith("alpha") or env.startswith("abs"):
+                staging = get_order(env, order)["response"]["stage-location"]
+                if staging is None:
+                    stage_order(env, order)
+
+            index_status_from = STATUSES.index(current_status)
+            index_status_to = STATUSES.index(status_to)
+            statuses_todo = STATUSES[index_status_from+1:index_status_to+1]
+            change_statuses([order], statuses_todo, env)
+
+        else:
+            continue
+
+# delay ensures that database has time to accept our write operations ...
+# ... before we check for updated order statuses
+print("🥭 🐀 🦅 Verifying status transition ...")
+time.sleep(5)
+
+for order in orders:
+    try:
+        new_status = get_order(env, order)["response"]["status"]
+    except (TypeError, KeyError) as e:
+        new_status = None
+
+    if new_status in ["canceled", "cancelled"]:
+        continue
+    elif new_status != status_to:
+        print(f"❄️ ❄️: {order} is stuck under {new_status}, and not moved to {status_to}")
+
+
+
+
+
+
+countries = {
+    "Ukraine": "Kyiv",
+    "Canada": "Ottawa",
+    "France": "Paris",
+    "Japan": "Tokyo"
+}
+
+
+regions = {
+    "Ukraine": "Europe",
+    "Canada": "North America",
+    "France": "Europe",
+    "Japan": "Asia"
+}
+
+while True:
+    try:
+        country = input("Enter a country: ").strip()
+        capital = countries[country]
+        region = regions[country]  # 🆕 Retrieve the region using the country as the key
+        print(f"The capital of {country} is: {capital}")
+        print(f"Region: {region}")
+        break
+    except KeyError:
+        print("Sorry, that country is not in the list.")
+
+
+
+countries = {
+    "Ukraine": "Kyiv",
+    "Canada": "Ottawa",
+    "France": "Paris",
+    "Japan": "Tokyo"
+}
+
+regions = {
+    "Ukraine": "Europe",
+    "Canada": "North America",
+    "France": "Europe",
+    "Japan": "Asia"
+}
+
+while True:
+    country = input("Enter a country: ").strip()
+    capital = countries.get(country)
+    region = regions.get(country)
+
+    if capital and region:
+        print(f"The capital of {country} is: {capital}")
+        print(f"Region: {region}")
+        break
+    else:
+        print("Sorry, that country is not in the list.")
 
 
 
